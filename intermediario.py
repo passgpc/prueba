@@ -1,4 +1,5 @@
 import asyncio
+import os
 import websockets
 
 # Diccionario para almacenar las conexiones activas
@@ -54,9 +55,12 @@ async def handle_connection(websocket, path):
         if device_id in connected_devices:
             del connected_devices[device_id]
 
-# Iniciar el servidor WebSocket
-start_server = websockets.serve(handle_connection, "0.0.0.0", 8765)
+# Obtener el puerto de la variable de entorno PORT (o usar 8765 como valor predeterminado)
+PORT = int(os.getenv("PORT", 8765))
 
-print("Servidor intermediario iniciado en ws://0.0.0.0:8765")
+# Iniciar el servidor WebSocket
+start_server = websockets.serve(handle_connection, "0.0.0.0", PORT)
+
+print(f"Servidor intermediario iniciado en ws://0.0.0.0:{PORT}")
 asyncio.get_event_loop().run_until_complete(start_server)
 asyncio.get_event_loop().run_forever()
