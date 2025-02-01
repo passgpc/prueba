@@ -13,13 +13,19 @@ VALID_CREDENTIALS = {
 def handle_device_connection(client_socket, address):
     device_id = None
     try:
-        # Paso 1: Recibir las credenciales del dispositivo
-        credentials = client_socket.recv(1024).decode()
-        print(f"Credenciales recibidas de {address}: {credentials}")
+        # Paso 1: Recibir los primeros datos del dispositivo
+        data = client_socket.recv(1024).decode()
+        print(f"Datos recibidos de {address}: {data}")
+
+        # Ignorar solicitudes HTTP
+        if data.startswith("HEAD") or data.startswith("GET"):
+            print(f"Solicitud HTTP ignorada de {address}")
+            client_socket.send("HTTP/1.1 400 Bad Request\r\n\r\n".encode())
+            return
 
         # Parsear las credenciales (formato: "user:password")
         try:
-            user, password = credentials.split(":")
+            user, password = data.split(":")
         except ValueError:
             client_socket.send("ERROR: Formato de credenciales incorrecto".encode())
             return
