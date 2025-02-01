@@ -1,89 +1,97 @@
 import socket
 import threading
+from http.server import BaseHTTPRequestHandler, HTTPServer
+from io import BytesIO
+from PIL import Image
 
-# Diccionario para almacenar las conexiones activas
-connected_devices = {}
+# Simulación de dispositivos ONVIF registrados
+registered_devices = {}
 
-# Credenciales válidas para el XVR
-VALID_CREDENTIALS = {
-    "xvr_user": "passgpc",  # Usuario válido
-    "xvr_password": "passgpc1978"  # Contraseña válida
-}
+# Imagen estática para simular el video
+def get_static_image():
+    # Crea una imagen simple con Pillow
+    img = Image.new('RGB', (640, 480), color=(73, 109, 137))
+    img_byte_arr = BytesIO()
+    img.save(img_byte_arr, format='JPEG')
+    return img_byte_arr.getvalue()
 
-def handle_device_connection(client_socket, address):
-    device_id = None
-    try:
-        # Paso 1: Recibir los primeros datos del dispositivo
-        data = client_socket.recv(1024).decode()
-        print(f"Datos recibidos de {address}: {data}")
+class ONVIFHandler(BaseHTTPRequestHandler):
+    def do_POST(self):
+        # Leer la solicitud SOAP/XML
+        content_length = int(self.headers['Content-Length'])
+        soap_request = self.rfile.read(content_length).decode()
+        print(f"Solicitud SOAP recibida:\n{soap_request}")
 
-        # Ignorar solicitudes HTTP
-        if data.startswith("HEAD") or data.startswith("GET"):
-            print(f"Solicitud HTTP ignorada de {address}")
-            client_socket.send("HTTP/1.1 400 Bad Request\r\n\r\n".encode())
-            return
+        # Simular una respuesta ONVIF
+        if "GetDeviceInformation" in soap_request:
+            response = """<?xml version="1.0" encoding="UTF-8"?>
+            <SOAP-ENV:Envelope xmlns:SOAP-ENV="http://www.w3.org/2003/05/soap-envelope">
+                <SOAP-ENV:Body>
+                    <tds:GetDeviceInformationResponse>
+                        <tds:Manufacturer>Simulated Camera</tds:Manufacturer>
+                        <tds:Model>ONVIF Camera</tds:Model>
+                        <tds:FirmwareVersion>1.0</tds:FirmwareVersion>
+                    </tds:GetDeviceInformationResponse>
+                </SOAP-ENV:Body>
+            </SOAP-ENV:Envelope>"""
+            self.send_response(200)
+            self.send_header("Content-Type", "application/soap+xml")
+            self.end_headers()
+            self.wfile.write(response.encode())
 
-        # Parsear las credenciales (formato: "user:password")
-        try:
-            user, password = data.split(":")
-        except ValueError:
-            client_socket.send("ERROR: Formato de credenciales incorrecto".encode())
-            return
+    def do_GET(self):
+        # Simular una respuesta de descubrimiento WS-Discovery
+        if "onvif/device_service" in self.path:
+            response = """<?xml version="1.0" encoding="UTF-8"?>
+            <SOAP-ENV:Envelope xmlns:SOAP-ENV="http://www.w3.org/2003/05/soap-envelope">
+                <SOAP-ENV:Body>
+                    <wsdd:ProbeMatches>
+                        <wsdd:ProbeMatch>
+                            <wsdd:XAddrs>http://prueba-36vg.onrender.com/onvif/device_service</wsdd:XAddrs>
+                        </wsdd:ProbeMatch>
+                    </wsdd:ProbeMatches>
+                </SOAP-ENV:Body>
+            </SOAP-ENV:Envelope>"""
+            self.send_response(200)
+            self.send_header("Content-Type", "application/soap+xml")
+            self.end_headers()
+            self.wfile.write(response.encode())
 
-        # Validar las credenciales
-        if user == VALID_CREDENTIALS["xvr_user"] and password == VALID_CREDENTIALS["xvr_password"]:
-            client_socket.send("AUTH_SUCCESS".encode())
-            print(f"Autenticación exitosa para {address}.")
-        else:
-            client_socket.send("AUTH_FAILED".encode())
-            print(f"Autenticación fallida para {address}. Credenciales incorrectas.")
-            return
+def start_onvif_server():
+    server = HTTPServer(("0.0.0.0", 8080), ONVIFHandler)
+    print("Servidor ONVIF iniciado en 0.0.0.0:8080")
+    server.serve_forever()
 
-        # Paso 2: Recibir el ID del dispositivo después de la autenticación
-        device_id = client_socket.recv(1024).decode()
-        print(f"Dispositivo registrado: {device_id} desde {address}")
-
-        # Almacenar la conexión en el diccionario
-        connected_devices[device_id] = client_socket
-        print(f"Conexiones activas: {list(connected_devices.keys())}")
-
-        # Paso 3: Manejar mensajes del dispositivo
-        while True:
-            message = client_socket.recv(1024).decode()
-            if not message:
-                break
-
-            if message.startswith("CONNECT_TO:"):
-                target_device_id = message.split(":")[1]
-                if target_device_id in connected_devices:
-                    # Enviar la dirección del dispositivo objetivo
-                    target_socket = connected_devices[target_device_id]
-                    target_address = target_socket.getpeername()
-                    client_socket.send(f"PEER_ADDRESS:{target_address}".encode())
-                    print(f"Conexión P2P establecida entre {device_id} y {target_device_id}")
-                else:
-                    client_socket.send("ERROR: Dispositivo no encontrado".encode())
-
-    except Exception as e:
-        print(f"Error con el dispositivo {address}: {e}")
-    finally:
-        client_socket.close()
-        # Eliminar la conexión del diccionario cuando el dispositivo se desconecta
-        if device_id in connected_devices:
-            del connected_devices[device_id]
-
-def start_server():
-    # Crear un socket TCP/IP
-    server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-    server.bind(("0.0.0.0", 10000))  # Puerto 10000
-    server.listen(5)
-    print("Servidor intermediario iniciado en 0.0.0.0:10000")
+def start_rtsp_server():
+    # Simular un servidor RTSP que envía una imagen estática
+    server_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    server_socket.bind(("0.0.0.0", 554))  # Puerto estándar para RTSP
+    server_socket.listen(5)
+    print("Servidor RTSP iniciado en 0.0.0.0:554")
 
     while True:
-        client_socket, address = server.accept()
-        print(f"Conexión entrante desde {address}")
-        # Manejar cada conexión en un hilo separado
-        threading.Thread(target=handle_device_connection, args=(client_socket, address)).start()
+        client_socket, address = server_socket.accept()
+        print(f"Conexión RTSP entrante desde {address}")
+        threading.Thread(target=handle_rtsp_connection, args=(client_socket,)).start()
+
+def handle_rtsp_connection(client_socket):
+    try:
+        # Simular una respuesta RTSP
+        client_socket.send(b"RTSP/1.0 200 OK\r\nCSeq: 1\r\n\r\n")
+        while True:
+            # Enviar la imagen estática como un frame de video
+            image_data = get_static_image()
+            client_socket.send(image_data)
+    except Exception as e:
+        print(f"Error en la conexión RTSP: {e}")
+    finally:
+        client_socket.close()
 
 if __name__ == "__main__":
-    start_server()
+    # Iniciar el servidor ONVIF
+    threading.Thread(target=start_onvif_server, daemon=True).start()
+
+    # Iniciar el servidor RTSP
+    threading.Thread(target=start_rtsp_server, daemon=True).start()
+
+    print("Intermediario ONVIF activo.")
